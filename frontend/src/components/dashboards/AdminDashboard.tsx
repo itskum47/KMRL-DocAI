@@ -1,6 +1,42 @@
 import { Users, FileText, AlertTriangle, Activity } from 'lucide-react'
+import RecentSummaries from '../RecentSummaries'
+import ProjectPhasesCard from '../ProjectPhasesCard'
+import { useState, useEffect } from 'react'
 
 export default function AdminDashboard() {
+  // modal/edit state removed — Dashboard shows users only
+  const [users, setUsers] = useState<Array<any>>([])
+
+  useEffect(()=>{ loadUsers() }, [])
+
+  async function loadUsers() {
+    try {
+      const res = await fetch('http://localhost:3001/api/v1/users')
+      const data = await res.json()
+      const arr = data || []
+      arr.sort((a:any,b:any)=>{
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+        return tb - ta
+      })
+      setUsers(arr)
+    } catch (e) { console.warn('Failed to load users', e) }
+  }
+
+  function timeAgo(iso?: string) {
+    if (!iso) return '-'
+    const t = Date.now() - new Date(iso).getTime()
+    const sec = Math.floor(t/1000)
+    if (sec < 60) return `${sec}s ago`
+    const min = Math.floor(sec/60)
+    if (min < 60) return `${min}m ago`
+    const hr = Math.floor(min/60)
+    if (hr < 24) return `${hr}h ago`
+    const days = Math.floor(hr/24)
+    return `${days}d ago`
+  }
+
+  // dashboard no longer exposes edit/delete actions — actions are available in Admin page
   return (
     <div className="space-y-6">
       {/* Stats Overview */}
@@ -101,9 +137,12 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* User Management */}
+  {/* User Management */}
       <div className="card">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">User Management</h3>
+        <div className="mb-3">
+          <div className="text-sm text-gray-600">Manage application users</div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -120,34 +159,37 @@ export default function AdminDashboard() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Last Active
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                {/* actions column removed */}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              <tr>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">John Doe</div>
-                  <div className="text-sm text-gray-500">john.doe@kmrl.com</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                    Engineer
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  Engineering
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  2 hours ago
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <button className="text-primary-600 hover:text-primary-900">Edit</button>
-                </td>
-              </tr>
+              {users.map(u=> (
+                <tr key={u.id}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{u.name}</div>
+                    <div className="text-sm text-gray-500">{u.email}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                      {u.role || 'User'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{u.department || 'Unassigned'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{timeAgo(u.last_active || u.created_at)}</td>
+                  {/* actions removed from dashboard view */}
+                </tr>
+              ))}
             </tbody>
           </table>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card">
+          <RecentSummaries limit={3} />
+        </div>
+        <div className="card">
+          <ProjectPhasesCard />
         </div>
       </div>
     </div>

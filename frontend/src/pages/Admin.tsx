@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useUser } from '@clerk/clerk-react'
+import useUserRole from '../hooks/useUserRole'
+import { getDemoUser } from '../lib/demoUser'
+import { getEffectiveRole } from '../utils/roles'
 import { 
   Users, 
   FileText, 
@@ -13,7 +16,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
-
+import TasksCalendarModal from '../components/TasksCalendarModal'
 interface SystemStats {
   documents: {
     total: number
@@ -50,14 +53,18 @@ interface User {
 
 export default function Admin() {
   const { user } = useUser()
+  const { user: demoUser } = useUserRole()
+  const demoNow = getDemoUser() || demoUser
   const { apiCall } = useApi()
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [showCalendar, setShowCalendar] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'system'>('overview')
 
   // Redirect if not admin
-  if (user?.publicMetadata?.role !== 'admin') {
+  const currentRole = getEffectiveRole(demoNow, user)
+  if (currentRole !== 'admin') {
     return (
       <div className="text-center py-8">
         <AlertTriangle className="mx-auto h-12 w-12 text-red-400" />
@@ -75,14 +82,67 @@ export default function Admin() {
     try {
       setLoading(true)
       
-      // Fetch system stats (this would be a dedicated admin endpoint)
-      const [documentsRes, usersRes, tasksRes] = await Promise.all([
-        apiCall('/documents?limit=1'), // Get count from pagination
-        apiCall('/users'),
-        apiCall('/tasks?limit=1') // Get count from pagination
-      ])
+      // Fetch documents/tasks via apiCall for stats, but fetch users directly from mock API
+        // Fetch users from mock API independently so failures in apiCall don't block users
+        try {
+          const usersResp = await fetch('http://localhost:3001/api/v1/users')
+          const usersList = await usersResp.json()
+          setUsers(usersList || [])
+        } catch (e) {
+          console.error('Failed to load users from mock API:', e)
+          setUsers([])
+        }
 
-      // Mock system stats for now
+        // Fetch system stats (this would be a dedicated admin endpoint); don't let failures stop users
+        let documentsRes: any = { pagination: { total: 0 } }
+        let tasksRes: any = { pagination: { total: 0 } }
+        try {
+          const results = await Promise.all([
+            apiCall('/documents?limit=1'), // Get count from pagination
+            apiCall('/tasks?limit=1') // Get count from pagination
+          ])
+          documentsRes = results[0]
+          tasksRes = results[1]
+        } catch (error) {
+          console.error('Failed to fetch documents/tasks stats:', error)
+        }
+        setStats({
+          documents: {
+            total: documentsRes.pagination?.total || 0,
+            processing: 5,
+            failed: 2,
+            processed_today: 23
+          },
+          users: {
+            total: (users && users.length) || 0,
+            active_today: 45,
+            by_role: {
+              admin: 2,
+              hr: 5,
+              engineer: 12,
+              director: 3,
+              staff: 28
+            }
+          },
+          tasks: {
+            total: tasksRes.pagination?.total || 0,
+            pending: 15,
+            overdue: 3
+          },
+          system: {
+            queue_length: 2,
+            avg_processing_time: 28,
+            success_rate: 98.2,
+            storage_usage: 67
+          }
+        })
+        setLoading(false)
+
+      // Fetch users from mock API (mock server persists users to users.json)
+      const usersResp = await fetch('http://localhost:3001/api/v1/users')
+      const usersList = await usersResp.json()
+
+      // Mock system stats for now, using usersList length
       setStats({
         documents: {
           total: documentsRes.pagination?.total || 0,
@@ -91,7 +151,7 @@ export default function Admin() {
           processed_today: 23
         },
         users: {
-          total: usersRes.pagination?.total || 0,
+          total: usersList.length || 0,
           active_today: 45,
           by_role: {
             admin: 2,
@@ -114,7 +174,7 @@ export default function Admin() {
         }
       })
 
-      setUsers(usersRes.users || [])
+      setUsers(usersList || [])
     } catch (error) {
       console.error('Failed to fetch admin data:', error)
     } finally {
@@ -124,8 +184,9 @@ export default function Admin() {
 
   const handleUpdateUserRole = async (userId: string, newRole: string) => {
     try {
-      await apiCall(`/users/${userId}`, {
-        method: 'PATCH',
+      await fetch(`http://localhost:3001/api/v1/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole })
       })
       fetchData() // Refresh data
@@ -146,13 +207,22 @@ export default function Admin() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-semibold text-gray-900">Admin Panel</h1>
-        <button
-          onClick={fetchData}
-          className="btn-secondary flex items-center space-x-2"
-        >
-          <RefreshCw className="w-4 h-4" />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={()=>setShowCalendar(true)}
+            className="btn-secondary flex items-center space-x-2"
+          >
+            <Clock className="w-4 h-4" />
+            <span>Calendar</span>
+          </button>
+          <button
+            onClick={fetchData}
+            className="btn-secondary flex items-center space-x-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Tab Navigation */}
@@ -413,6 +483,8 @@ export default function Admin() {
           </div>
         </div>
       )}
+      {/* Calendar Modal */}
+      <TasksCalendarModal open={showCalendar} onClose={() => setShowCalendar(false)} />
     </div>
   )
 }
